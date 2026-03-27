@@ -176,7 +176,7 @@
 
     .inv-row {
       display: grid;
-      grid-template-columns: 24px 1fr 140px 36px;
+      grid-template-columns: 24px 1fr 160px 36px;
       align-items: center;
       gap: 10px;
       background: var(--off);
@@ -207,20 +207,40 @@
       margin-top: 1px;
     }
 
+    .check-wrap {
+      display: flex;
+      align-items: center;
+      border: 1.5px solid var(--border);
+      border-radius: 7px;
+      background: white;
+      overflow: hidden;
+      transition: border-color 0.15s;
+    }
+
+    .check-wrap:focus-within { border-color: var(--red); }
+
+    .check-prefix {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--muted);
+      background: var(--off);
+      padding: 7px 7px 7px 10px;
+      border-right: 1.5px solid var(--border);
+      white-space: nowrap;
+      user-select: none;
+    }
+
     .check-field {
       font-family: 'Figtree', sans-serif;
       font-size: 0.8rem;
       font-weight: 600;
-      border: 1.5px solid var(--border);
-      border-radius: 7px;
-      padding: 7px 10px;
-      width: 100%;
+      border: none;
+      border-radius: 0;
+      padding: 7px 8px;
+      width: 60px;
       background: white;
       outline: none;
-      transition: border-color 0.15s;
     }
-
-    .check-field:focus { border-color: var(--red); }
     .check-field::placeholder { color: #ccc; font-weight: 400; }
 
     .del-btn {
@@ -495,8 +515,10 @@
           <div class="inv-name" title="${esc(inv.file.name)}">${esc(inv.file.name)}</div>
           <div class="inv-sub">Invoice ${i + 1} of ${files.length}</div>
         </div>
-        <input class="check-field" type="text" placeholder="Check #" value="${esc(inv.check)}"
+        <div class="check-wrap">
+          <span class="check-prefix">02244</span><input class="check-field" type="text" placeholder="00" value="${esc(inv.check)}"
           oninput="files[${i}].check = this.value"/>
+        </div>
         <button class="del-btn" onclick="removeFile(${i})" title="Remove">✕</button>
       `;
 
@@ -558,7 +580,7 @@
           // Stamp check number on every page of this invoice
           if (inv.check.trim()) {
             const { width, height } = page.getSize();
-            const label_text = `Check #: ${inv.check.trim()}`;
+            const label_text = `Check #: 02244${inv.check.trim()}`;
             const fontSize = 9;
             const textWidth = font.widthOfTextAtSize(label_text, fontSize);
             const padX = 10, padY = 6;
