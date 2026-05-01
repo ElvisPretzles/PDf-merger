@@ -33,7 +33,6 @@
       padding: 0 16px 80px;
     }
 
-    /* Header */
     .topbar {
       width: 100%;
       max-width: 600px;
@@ -69,7 +68,6 @@
       margin-top: 2px;
     }
 
-    /* Main card */
     .card {
       background: var(--white);
       border-radius: var(--radius);
@@ -79,7 +77,6 @@
       overflow: hidden;
     }
 
-    /* Step indicator */
     .steps {
       display: flex;
       border-bottom: 1px solid var(--border);
@@ -121,11 +118,9 @@
       vertical-align: middle;
     }
 
-    /* Panels */
     .panel { padding: 28px 24px; display: none; }
     .panel.active { display: block; }
 
-    /* Drop zone */
     #dropzone {
       border: 2px dashed var(--border);
       border-radius: 10px;
@@ -162,7 +157,6 @@
 
     #fileInput { display: none; }
 
-    /* Invoice rows */
     .section-label {
       font-size: 0.7rem;
       font-weight: 700;
@@ -190,6 +184,7 @@
     .inv-row:active { cursor: grabbing; }
     .inv-row.dragging { opacity: 0.35; }
     .inv-row.drag-over { border-color: var(--red); background: #fff5f7; }
+    .inv-row.skipped { border-color: #f0b429; background: #fffbeb; opacity: 0.7; }
 
     .handle { color: #ccc; font-size: 1rem; text-align: center; }
 
@@ -259,7 +254,6 @@
     }
     .del-btn:hover { color: var(--red); background: #fff0f2; }
 
-    /* Buttons */
     .btn {
       font-family: 'Figtree', sans-serif;
       font-size: 0.9rem;
@@ -295,7 +289,6 @@
       margin-top: 20px;
     }
 
-    /* Progress */
     #progress-wrap {
       margin-top: 18px;
       display: none;
@@ -322,7 +315,6 @@
       margin-top: 6px;
     }
 
-    /* Done panel */
     .success-icon {
       width: 64px;
       height: 64px;
@@ -365,6 +357,17 @@
       margin-bottom: 24px;
     }
 
+    .skip-notice {
+      background: #fffbeb;
+      border: 1.5px solid #f0b429;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.75rem;
+      color: #7a4f00;
+      margin-bottom: 16px;
+      text-align: left;
+    }
+
     .hint {
       font-size: 0.72rem;
       color: var(--muted);
@@ -372,7 +375,6 @@
       line-height: 1.5;
     }
 
-    /* Add more row at bottom of list */
     .add-more {
       margin-top: 10px;
       font-size: 0.75rem;
@@ -410,7 +412,6 @@
 
 <div class="card">
 
-  <!-- Steps -->
   <div class="steps">
     <div class="step active" id="step1"><span class="step-num">1</span> Upload</div>
     <div class="step" id="step2"><span class="step-num">2</span> Check Numbers</div>
@@ -452,6 +453,7 @@
       <div class="success-icon">✅</div>
       <h2>All done!</h2>
       <p>Your merged invoice PDF has been downloaded.</p>
+      <div id="skip-notice" class="skip-notice" style="display:none"></div>
       <div class="file-pill">📄 <span id="out-name">merged_invoices.pdf</span></div>
       <br/>
       <button class="btn btn-red" onclick="startOver()">Start Over</button>
@@ -462,11 +464,10 @@
 </div>
 
 <script>
-  // ── State ──────────────────────────────────────────────────────────────────
-  let files = []; // { file: File, check: string }
+  let files = [];
   let dragSrc = null;
+  let skippedFiles = [];
 
-  // ── File input handlers ────────────────────────────────────────────────────
   const dz = document.getElementById('dropzone');
   const fi = document.getElementById('fileInput');
   const fi2 = document.getElementById('fileInput2');
@@ -488,7 +489,6 @@
     document.getElementById('next1').disabled = files.length === 0;
   }
 
-  // ── Step navigation ────────────────────────────────────────────────────────
   function goStep(n) {
     [1,2,3].forEach(i => {
       document.getElementById('panel' + i).classList.toggle('active', i === n);
@@ -500,7 +500,6 @@
     if (n === 2) renderList();
   }
 
-  // ── Render invoice list ───────────────────────────────────────────────────
   function renderList() {
     const list = document.getElementById('invoice-list');
     list.innerHTML = '';
@@ -545,9 +544,7 @@
     else renderList();
   }
 
-  // ── Merge ──────────────────────────────────────────────────────────────────
   async function startMerge() {
-    // Sync check values
     document.querySelectorAll('.check-field').forEach((el, i) => files[i].check = el.value);
 
     const btn = document.getElementById('mergeBtn');
@@ -558,6 +555,7 @@
     const fill = document.getElementById('prog-fill');
     const label = document.getElementById('prog-label');
     pw.style.display = 'block';
+    skippedFiles = [];
 
     try {
       const { PDFDocument, rgb, StandardFonts } = PDFLib;
@@ -569,46 +567,50 @@
         label.textContent = `Processing ${inv.file.name}…`;
         fill.style.width = Math.round(((i) / files.length) * 90) + '%';
 
-        const bytes = await inv.file.arrayBuffer();
-        const src = await PDFDocument.load(bytes);
-        const pageIdxs = src.getPageIndices();
-        const copied = await merged.copyPages(src, pageIdxs);
+        // ── FIX 1: ignoreEncryption so encrypted PDFs don't crash the whole batch ──
+        try {
+          const bytes = await inv.file.arrayBuffer();
+          const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+          const pageIdxs = src.getPageIndices();
+          const copied = await merged.copyPages(src, pageIdxs);
 
-        copied.forEach(page => {
-          merged.addPage(page);
+          copied.forEach(page => {
+            merged.addPage(page);
 
-          // Stamp check number on every page of this invoice
-          if (inv.check.trim()) {
-            const { width, height } = page.getSize();
-            const label_text = `Check #: 02244${inv.check.trim()}`;
-            const fontSize = 9;
-            const textWidth = font.widthOfTextAtSize(label_text, fontSize);
-            const padX = 10, padY = 6;
-            const boxW = textWidth + padX * 2;
-            const boxH = fontSize + padY * 2;
-            const margin = 14;
-            const bx = width - boxW - margin;
-            const by = height - boxH - margin;
+            if (inv.check.trim()) {
+              const { width, height } = page.getSize();
+              const label_text = `Check #: 02244${inv.check.trim()}`;
+              const fontSize = 9;
+              const textWidth = font.widthOfTextAtSize(label_text, fontSize);
+              const padX = 10, padY = 6;
+              const boxW = textWidth + padX * 2;
+              const boxH = fontSize + padY * 2;
+              const margin = 14;
+              const bx = width - boxW - margin;
+              const by = height - boxH - margin;
 
-            // Background box
-            page.drawRectangle({
-              x: bx, y: by, width: boxW, height: boxH,
-              color: rgb(0.91, 0.94, 1.0),
-              borderColor: rgb(0.23, 0.35, 0.60),
-              borderWidth: 1,
-              opacity: 0.92,
-            });
+              page.drawRectangle({
+                x: bx, y: by, width: boxW, height: boxH,
+                color: rgb(0.91, 0.94, 1.0),
+                borderColor: rgb(0.23, 0.35, 0.60),
+                borderWidth: 1,
+                opacity: 0.92,
+              });
 
-            // Text
-            page.drawText(label_text, {
-              x: bx + padX,
-              y: by + padY,
-              size: fontSize,
-              font,
-              color: rgb(0.08, 0.08, 0.16),
-            });
-          }
-        });
+              page.drawText(label_text, {
+                x: bx + padX,
+                y: by + padY,
+                size: fontSize,
+                font,
+                color: rgb(0.08, 0.08, 0.16),
+              });
+            }
+          });
+        } catch (fileErr) {
+          // ── FIX 2: skip bad files instead of aborting the whole merge ──
+          console.warn(`Skipped "${inv.file.name}":`, fileErr.message);
+          skippedFiles.push(inv.file.name);
+        }
       }
 
       fill.style.width = '100%';
@@ -618,7 +620,6 @@
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
 
-      // Auto-download
       const today = new Date();
       const dateStr = `${today.getMonth()+1}-${today.getDate()}-${today.getFullYear()}`;
       const filename = `invoices_${dateStr}.pdf`;
@@ -629,6 +630,16 @@
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
+
+      // Show skipped file warning if any
+      const notice = document.getElementById('skip-notice');
+      if (skippedFiles.length > 0) {
+        notice.style.display = 'block';
+        notice.innerHTML = `⚠️ <strong>${skippedFiles.length} file(s) skipped</strong> due to errors (e.g. corrupted or heavily encrypted):<br><br>` +
+          skippedFiles.map(n => `• ${esc(n)}`).join('<br>');
+      } else {
+        notice.style.display = 'none';
+      }
 
       setTimeout(() => goStep(3), 400);
 
@@ -642,6 +653,7 @@
 
   function startOver() {
     files = [];
+    skippedFiles = [];
     document.getElementById('fileInput').value = '';
     document.getElementById('fileInput2').value = '';
     document.getElementById('next1').disabled = true;
